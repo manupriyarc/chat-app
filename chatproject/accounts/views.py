@@ -64,3 +64,8 @@ def profile(request):
     else:
         form = ProfileUpdateForm(instance=request.user)
     return render(request, 'accounts/profile.html', {'form': form})
+
+from django.shortcuts import render
+
+def home(request):
+    return render(request, 'accounts/home.html')  # or your template path
