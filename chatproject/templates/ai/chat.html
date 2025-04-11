@@ -1,0 +1,159 @@
+<!-- templates/ai/chat.html -->
+
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}AI Chat - CloudChat{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/chat.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-robot me-2"></i>AI Assistant
+                </h5>
+                <div>
+                    <a href="{% url 'home' %}" class="btn btn-sm btn-light">
+                        <i class="fas fa-arrow-left"></i> Back to Chats
+                    </a>
+                </div>
+            </div>
+            
+            <div class="card-body chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    {% for message in messages %}
+                    <div class="message {% if message.is_user %}sent{% else %}received{% endif %}">
+                        <div class="message-sender">
+                            {% if message.is_user %}
+                                <img src="{{ request.user.profile_picture_url }}" alt="You" 
+                                     class="rounded-circle me-2" width="30" height="30">
+                                <strong>You</strong>
+                            {% else %}
+                                <img src="{% static 'images/ai_avatar.png' %}" alt="AI Assistant" 
+                                     class="rounded-circle me-2" width="30" height="30">
+                                <strong>AI Assistant</strong>
+                            {% endif %}
+                        </div>
+                        <div class="message-content">{{ message.message }}</div>
+                        <div class="message-time">{{ message.timestamp|timesince }} ago</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="chat-input mt-3">
+                    <form id="message-form">
+                        <input type="hidden" id="chat-id" value="{{ chat.id }}">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="message-input" 
+                                   placeholder="Ask me anything..." autocomplete="off">
+                            <button class="btn btn-primary" type="submit">
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Scroll to bottom of chat
+    const chatMessages = document.getElementById('chat-messages');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Message form submission
+    $('#message-form').on('submit', function(e) {
+        e.preventDefault();
+        const messageInput = $('#message-input');
+        const message = messageInput.val().trim();
+        const chatId = $('#chat-id').val();
+        
+        if (message) {
+            // Add user message to UI immediately
+            const messageElement = document.createElement('div');
+            messageElement.className = 'message sent';
+            messageElement.innerHTML = `
+                <div class="message-sender">
+                    <img src="{{ request.user.profile_picture_url }}" alt="You" 
+                         class="rounded-circle me-2" width="30" height="30">
+                    <strong>You</strong>
+                </div>
+                <div class="message-content">${message}</div>
+                <div class="message-time">Just now</div>
+            `;
+            document.querySelector('#chat-messages').appendChild(messageElement);
+            messageInput.val('');
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Show "AI is typing" indicator
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'message received';
+            typingIndicator.innerHTML = `
+                <div class="message-sender">
+                    <img src="{% static 'images/ai_avatar.png' %}" alt="AI Assistant" 
+                         class="rounded-circle me-2" width="30" height="30">
+                    <strong>AI Assistant</strong>
+                </div>
+                <div class="message-content typing-indicator">
+                    <span></span><span></span><span></span>
+                </div>
+            `;
+            document.querySelector('#chat-messages').appendChild(typingIndicator);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Send message to server
+            $.post('/ai/send_message/', {
+                message: message,
+                chat_id: chatId,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            }, function(data) {
+                if (data.success) {
+                    // The actual response will be pushed via WebSocket
+                } else {
+                    alert('Error sending message: ' + data.error);
+                }
+            });
+        }
+    });
+    
+    // WebSocket connection for AI chat
+    const aiChatSocket = new WebSocket(
+        'ws://' + window.location.host +
+        '/ws/ai/{{ chat.id }}/'
+    );
+    
+    aiChatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        const message = data.message;
+        
+        // Remove typing indicator
+        document.querySelectorAll('.typing-indicator').forEach(el => el.remove());
+        
+        // Add AI response
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message received';
+        messageElement.innerHTML = `
+            <div class="message-sender">
+                <img src="{% static 'images/ai_avatar.png' %}" alt="AI Assistant" 
+                     class="rounded-circle me-2" width="30" height="30">
+                <strong>AI Assistant</strong>
+            </div>
+            <div class="message-content">${message}</div>
+            <div class="message-time">Just now</div>
+        `;
+        
+        document.querySelector('#chat-messages').appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    };
+});
+</script>
+{% endblock %}

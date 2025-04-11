@@ -1,0 +1,180 @@
+<!-- templates/chat/room.html -->
+
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ room.name }} - CloudChat{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/chat.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    {% if room.is_group %}
+                        <i class="fas fa-users me-2"></i>{{ room.name }}
+                    {% else %}
+                        <i class="fas fa-user me-2"></i>
+                        {% for participant in room.participants.all %}
+                            {% if participant != request.user %}
+                                {{ participant.email }}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                </h5>
+                <div>
+                    {% if room.is_group %}
+                    <button class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#groupInfoModal">
+                        <i class="fas fa-info-circle"></i> Group Info
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card-body chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    {% for message in messages %}
+                    <div class="message {% if message.sender == request.user %}sent{% else %}received{% endif %}">
+                        <div class="message-sender">
+                            <img src="{{ message.sender.profile_picture_url }}" alt="{{ message.sender.email }}" 
+                                 class="rounded-circle me-2" width="30" height="30">
+                            <strong>{{ message.sender.email }}</strong>
+                        </div>
+                        <div class="message-content">{{ message.content }}</div>
+                        <div class="message-time">{{ message.timestamp|timesince }} ago</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="chat-input mt-3">
+                    <form id="message-form">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="message-input" placeholder="Type your message..." autocomplete="off">
+                            <button class="btn btn-primary" type="submit">
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if room.is_group %}
+<!-- Group Info Modal -->
+<div class="modal fade" id="groupInfoModal" tabindex="-1" aria-labelledby="groupInfoModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="groupInfoModalLabel">Group Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <h6>Group Name: {{ room.name }}</h6>
+                <p>Created: {{ room.created_at|date:"F j, Y" }}</p>
+                
+                <h6 class="mt-3">Participants ({{ room.participants.count }})</h6>
+                <ul class="list-group list-group-flush">
+                    {% for participant in room.participants.all %}
+                    <li class="list-group-item d-flex align-items-center">
+                        <img src="{{ participant.profile_picture_url }}" alt="{{ participant.email }}" 
+                             class="rounded-circle me-2" width="30" height="30">
+                        {{ participant.email }}
+                        {% if participant == request.user %}
+                        <span class="badge bg-primary ms-2">You</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                {% if request.user in room.participants.all %}
+                <button type="button" class="btn btn-danger" id="leaveGroupBtn">Leave Group</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const roomId = {{ room.id }};
+const currentUserId = {{ request.user.id }};
+
+$(document).ready(function() {
+    // Scroll to bottom of chat
+    const chatMessages = document.getElementById('chat-messages');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // WebSocket connection
+    const chatSocket = new WebSocket(
+        'ws://' + window.location.host +
+        '/ws/chat/' + roomId + '/'
+    );
+    
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        const message = data.message;
+        
+        const messageElement = document.createElement('div');
+        messageElement.className = `message ${message.sender_id == currentUserId ? 'sent' : 'received'}`;
+        
+        messageElement.innerHTML = `
+            <div class="message-sender">
+                <img src="${message.sender_profile_pic}" alt="${message.sender_email}" 
+                     class="rounded-circle me-2" width="30" height="30">
+                <strong>${message.sender_email}</strong>
+            </div>
+            <div class="message-content">${message.content}</div>
+            <div class="message-time">Just now</div>
+        `;
+        
+        document.querySelector('#chat-messages').appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    };
+    
+    chatSocket.onclose = function(e) {
+        console.error('Chat socket closed unexpectedly');
+    };
+    
+    // Message form submission
+    $('#message-form').on('submit', function(e) {
+        e.preventDefault();
+        const messageInput = $('#message-input');
+        const message = messageInput.val().trim();
+        
+        if (message) {
+            chatSocket.send(JSON.stringify({
+                'message': message,
+                'room_id': roomId
+            }));
+            messageInput.val('');
+        }
+    });
+    
+    // Leave group button
+    $('#leaveGroupBtn').click(function() {
+        if (confirm('Are you sure you want to leave this group?')) {
+            $.post('/api/leave_group/', {
+                room_id: roomId,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            }, function(data) {
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    alert('Error leaving group: ' + data.error);
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

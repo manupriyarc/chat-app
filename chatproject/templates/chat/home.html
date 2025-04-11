@@ -1,0 +1,188 @@
+<!-- templates/chat/home.html -->
+
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Home - CloudChat{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/chat.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Chat Rooms</h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                    {% for room in chat_rooms %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="{% url 'room' room.id %}" class="text-decoration-none flex-grow-1">
+                            {% if room.is_group %}
+                                {{ room.name }}
+                            {% else %}
+                                {% for participant in room.participants.all %}
+                                    {% if participant != request.user %}
+                                        {{ participant.email }}
+                                    {% endif %}
+                                {% endfor %}
+                            {% endif %}
+                        </a>
+                        <span class="badge bg-primary rounded-pill">{{ room.messages.count }}</span>
+                    </li>
+                    {% empty %}
+                    <li class="list-group-item">No chat rooms yet</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Users</h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="list-group list-group-flush">
+                    {% for user in other_users %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center">
+                            <img src="{{ user.profile_picture_url }}" alt="{{ user.email }}" 
+                                 class="rounded-circle me-2" width="30" height="30">
+                            <span>{{ user.email }}</span>
+                        </div>
+                        <button class="btn btn-sm btn-primary start-chat" data-user-id="{{ user.id }}">
+                            <i class="fas fa-comment"></i> Chat
+                        </button>
+                    </li>
+                    {% empty %}
+                    <li class="list-group-item">No other users</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Welcome to CloudChat</h5>
+            </div>
+            <div class="card-body">
+                <h4>Start chatting with your friends!</h4>
+                <p>Select a chat from the sidebar or start a new conversation.</p>
+                
+                <div class="mt-4">
+                    <h5>Features:</h5>
+                    <ul>
+                        <li>Real-time one-on-one messaging</li>
+                        <li>Group chats</li>
+                        <li>AI-powered chatbot</li>
+                        <li>Profile customization</li>
+                        <li>Cloud-based storage</li>
+                    </ul>
+                </div>
+                
+                <div class="mt-4">
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createGroupModal">
+                        <i class="fas fa-users"></i> Create Group Chat
+                    </button>
+                    <button class="btn btn-success ms-2" id="startAIChat">
+                        <i class="fas fa-robot"></i> Chat with AI
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Group Modal -->
+<div class="modal fade" id="createGroupModal" tabindex="-1" aria-labelledby="createGroupModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="createGroupModalLabel">Create Group Chat</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createGroupForm">
+                    <div class="mb-3">
+                        <label for="groupName" class="form-label">Group Name</label>
+                        <input type="text" class="form-control" id="groupName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Select Participants</label>
+                        <div class="form-check">
+                            {% for user in other_users %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" value="{{ user.id }}" id="user{{ user.id }}">
+                                <label class="form-check-label" for="user{{ user.id }}">
+                                    <img src="{{ user.profile_picture_url }}" alt="{{ user.email }}" 
+                                         class="rounded-circle me-2" width="20" height="20">
+                                    {{ user.email }}
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="createGroupBtn">Create Group</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // Start private chat
+    $('.start-chat').click(function() {
+        const userId = $(this).data('user-id');
+        $.get(`/api/get_or_create_private_room/${userId}/`, function(data) {
+            window.location.href = `/room/${data.room_id}/`;
+        });
+    });
+    
+    // Create group chat
+    $('#createGroupBtn').click(function() {
+        const groupName = $('#groupName').val();
+        const participants = [];
+        $('input[type="checkbox"]:checked').each(function() {
+            participants.push($(this).val());
+        });
+        
+        if (groupName && participants.length > 0) {
+            $.post('/api/create_group/', {
+                name: groupName,
+                participants: participants,
+                csrfmiddlewaretoken: '{{ csrf_token }}'
+            }, function(data) {
+                if (data.success) {
+                    window.location.href = `/room/${data.room_id}/`;
+                } else {
+                    alert('Error creating group: ' + data.error);
+                }
+            }).fail(function() {
+                alert('Error creating group. Please try again.');
+            });
+        } else {
+            alert('Please provide a group name and select at least one participant.');
+        }
+    });
+    
+    // Start AI chat
+    $('#startAIChat').click(function() {
+        // This would redirect to the AI chat interface
+        window.location.href = '/ai/chat/';
+    });
+});
+</script>
+{% endblock %}
